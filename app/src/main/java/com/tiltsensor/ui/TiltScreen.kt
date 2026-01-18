@@ -22,11 +22,17 @@ import com.tiltsensor.data.WheelieSession
 import com.tiltsensor.ui.theme.*
 import kotlin.math.abs
 
+enum class ScreenOrientation {
+    PORTRAIT,
+    LANDSCAPE
+}
+
 data class TiltState(
     val angle: Float = 0f,
     val isTared: Boolean = false,
     val isRunning: Boolean = false,
     val selectedAxis: MeasurementAxis = MeasurementAxis.PITCH,
+    val selectedOrientation: ScreenOrientation = ScreenOrientation.PORTRAIT,
     val sessionMaxAngle: Float = 0f,
     val currentWheelieMaxAngle: Float = 0f,
     val wheelieCount: Int = 0,
@@ -44,6 +50,7 @@ fun TiltScreen(
     onTare: () -> Unit,
     onResetTare: () -> Unit,
     onAxisChange: (MeasurementAxis) -> Unit,
+    onOrientationChange: (ScreenOrientation) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit,
     onClearHistory: () -> Unit
@@ -63,9 +70,9 @@ fun TiltScreen(
             )
         } else {
             if (isLandscape) {
-                LandscapeLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onResetSession, onToggleHistory)
+                LandscapeLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onOrientationChange, onResetSession, onToggleHistory)
             } else {
-                PortraitLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onResetSession, onToggleHistory)
+                PortraitLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onOrientationChange, onResetSession, onToggleHistory)
             }
         }
     }
@@ -78,6 +85,7 @@ private fun PortraitLayout(
     onTare: () -> Unit,
     onResetTare: () -> Unit,
     onAxisChange: (MeasurementAxis) -> Unit,
+    onOrientationChange: (ScreenOrientation) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit
 ) {
@@ -87,14 +95,16 @@ private fun PortraitLayout(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Axis selector at top
-        AxisSelector(
-            selectedAxis = state.selectedAxis,
-            onAxisChange = onAxisChange,
-            enabled = !state.isRunning
-        )
-
-        Spacer(modifier = Modifier.weight(0.05f))
+        // Settings row at top (only when not running)
+        if (!state.isRunning) {
+            SettingsPanel(
+                selectedAxis = state.selectedAxis,
+                selectedOrientation = state.selectedOrientation,
+                onAxisChange = onAxisChange,
+                onOrientationChange = onOrientationChange
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         AngleDisplay(
             angle = state.angle,
@@ -108,7 +118,7 @@ private fun PortraitLayout(
                 modifier = Modifier.weight(0.25f)
             )
         } else {
-            Spacer(modifier = Modifier.weight(0.25f))
+            Spacer(modifier = Modifier.weight(0.2f))
         }
 
         ButtonPanel(
@@ -131,6 +141,7 @@ private fun LandscapeLayout(
     onTare: () -> Unit,
     onResetTare: () -> Unit,
     onAxisChange: (MeasurementAxis) -> Unit,
+    onOrientationChange: (ScreenOrientation) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit
 ) {
@@ -147,12 +158,6 @@ private fun LandscapeLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            AxisSelector(
-                selectedAxis = state.selectedAxis,
-                onAxisChange = onAxisChange,
-                enabled = !state.isRunning
-            )
-            Spacer(modifier = Modifier.height(16.dp))
             AngleDisplay(
                 angle = state.angle,
                 isRunning = state.isRunning,
@@ -168,6 +173,16 @@ private fun LandscapeLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceEvenly
         ) {
+            if (!state.isRunning) {
+                SettingsPanel(
+                    selectedAxis = state.selectedAxis,
+                    selectedOrientation = state.selectedOrientation,
+                    onAxisChange = onAxisChange,
+                    onOrientationChange = onOrientationChange,
+                    compact = true
+                )
+            }
+
             if (state.isRunning) {
                 StatsPanel(
                     state = state,
@@ -183,44 +198,73 @@ private fun LandscapeLayout(
                 onResetTare = onResetTare,
                 onResetSession = onResetSession,
                 onToggleHistory = onToggleHistory,
-                modifier = Modifier.weight(0.5f)
+                modifier = if (state.isRunning) Modifier.weight(0.5f) else Modifier
             )
         }
     }
 }
 
 @Composable
-private fun AxisSelector(
+private fun SettingsPanel(
     selectedAxis: MeasurementAxis,
+    selectedOrientation: ScreenOrientation,
     onAxisChange: (MeasurementAxis) -> Unit,
-    enabled: Boolean
+    onOrientationChange: (ScreenOrientation) -> Unit,
+    compact: Boolean = false
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "Axis: ",
-            color = TextSecondary,
-            fontSize = 14.sp
-        )
+        // Axis selector
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Axis: ",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+            FilterChip(
+                selected = selectedAxis == MeasurementAxis.PITCH,
+                onClick = { onAxisChange(MeasurementAxis.PITCH) },
+                label = { Text(if (compact) "Pitch" else "Pitch (wheelie)") },
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            FilterChip(
+                selected = selectedAxis == MeasurementAxis.ROLL,
+                onClick = { onAxisChange(MeasurementAxis.ROLL) },
+                label = { Text(if (compact) "Roll" else "Roll (lean)") },
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
 
-        FilterChip(
-            selected = selectedAxis == MeasurementAxis.PITCH,
-            onClick = { if (enabled) onAxisChange(MeasurementAxis.PITCH) },
-            label = { Text("Pitch (wheelie)") },
-            enabled = enabled,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
+        Spacer(modifier = Modifier.height(8.dp))
 
-        FilterChip(
-            selected = selectedAxis == MeasurementAxis.ROLL,
-            onClick = { if (enabled) onAxisChange(MeasurementAxis.ROLL) },
-            label = { Text("Roll (lean)") },
-            enabled = enabled,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
+        // Orientation selector
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Lock: ",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+            FilterChip(
+                selected = selectedOrientation == ScreenOrientation.PORTRAIT,
+                onClick = { onOrientationChange(ScreenOrientation.PORTRAIT) },
+                label = { Text("Portrait") },
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            FilterChip(
+                selected = selectedOrientation == ScreenOrientation.LANDSCAPE,
+                onClick = { onOrientationChange(ScreenOrientation.LANDSCAPE) },
+                label = { Text("Landscape") },
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
     }
 }
 

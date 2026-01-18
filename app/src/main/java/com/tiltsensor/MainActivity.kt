@@ -1,5 +1,6 @@
 package com.tiltsensor
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -8,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
 import com.tiltsensor.data.SessionRepository
 import com.tiltsensor.data.WheelieSession
+import com.tiltsensor.ui.ScreenOrientation
 import com.tiltsensor.ui.TiltScreen
 import com.tiltsensor.ui.TiltState
 import com.tiltsensor.ui.theme.TiltSensorTheme
@@ -28,6 +30,7 @@ class MainActivity : ComponentActivity() {
     private var isRunning = mutableStateOf(false)
     private var isTared = mutableStateOf(false)
     private var selectedAxis = mutableStateOf(MeasurementAxis.PITCH)
+    private var selectedOrientation = mutableStateOf(ScreenOrientation.PORTRAIT)
     private var currentAngle = mutableStateOf(0f)
     private var sessionMaxAngle = mutableStateOf(0f)
     private var currentWheelieMaxAngle = mutableStateOf(0f)
@@ -46,6 +49,9 @@ class MainActivity : ComponentActivity() {
 
         // Keep screen on while app is running
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // Lock to portrait by default
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         tiltSensor = TiltSensor(this)
         sessionRepository = SessionRepository(this)
@@ -68,6 +74,7 @@ class MainActivity : ComponentActivity() {
                     isTared = isTared.value,
                     isRunning = isRunning.value,
                     selectedAxis = selectedAxis.value,
+                    selectedOrientation = selectedOrientation.value,
                     sessionMaxAngle = sessionMaxAngle.value,
                     currentWheelieMaxAngle = currentWheelieMaxAngle.value,
                     wheelieCount = wheelieCount.value,
@@ -84,6 +91,7 @@ class MainActivity : ComponentActivity() {
                     onTare = { handleTare() },
                     onResetTare = { handleResetTare() },
                     onAxisChange = { axis -> handleAxisChange(axis) },
+                    onOrientationChange = { orientation -> handleOrientationChange(orientation) },
                     onResetSession = { handleResetSession() },
                     onToggleHistory = { showHistory.value = !showHistory.value },
                     onClearHistory = { handleClearHistory() }
@@ -99,7 +107,6 @@ class MainActivity : ComponentActivity() {
             if (isInWheelie.value) {
                 endWheelie()
             }
-            // Don't stop the sensor, just save current session
             saveCurrentSession()
         }
     }
@@ -121,6 +128,14 @@ class MainActivity : ComponentActivity() {
             // Starting
             lastUpdateTime = System.currentTimeMillis()
             tiltSensor.start()
+        }
+    }
+
+    private fun handleOrientationChange(orientation: ScreenOrientation) {
+        selectedOrientation.value = orientation
+        requestedOrientation = when (orientation) {
+            ScreenOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ScreenOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
     }
 
@@ -159,7 +174,6 @@ class MainActivity : ComponentActivity() {
     private fun endWheelie() {
         isInWheelie.value = false
         wheelieCount.value++
-        // Reset current wheelie stats but keep session stats
         currentWheelieMaxAngle.value = 0f
         currentWheelieDurationMs.value = 0
     }
@@ -177,7 +191,6 @@ class MainActivity : ComponentActivity() {
     private fun handleAxisChange(axis: MeasurementAxis) {
         selectedAxis.value = axis
         tiltSensor.axis = axis
-        // Reset tare when axis changes
         handleResetTare()
     }
 
@@ -190,7 +203,6 @@ class MainActivity : ComponentActivity() {
         currentWheelieMaxAngle.value = 0f
         currentWheelieDurationMs.value = 0
         isInWheelie.value = false
-        // Don't reset tare - keep it
     }
 
     private fun handleClearHistory() {
