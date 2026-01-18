@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.tiltsensor.ui
 
 import android.content.res.Configuration
