@@ -1,6 +1,7 @@
 package com.tiltsensor
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
@@ -24,7 +25,9 @@ class MainActivity : ComponentActivity() {
         private const val WHEELIE_THRESHOLD = 15f
     }
 
+    private var isRunning = mutableStateOf(false)
     private var isTared = mutableStateOf(false)
+    private var selectedAxis = mutableStateOf(MeasurementAxis.PITCH)
     private var currentAngle = mutableStateOf(0f)
     private var sessionMaxAngle = mutableStateOf(0f)
     private var currentWheelieMaxAngle = mutableStateOf(0f)
@@ -41,12 +44,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Keep screen on while app is running
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         tiltSensor = TiltSensor(this)
         sessionRepository = SessionRepository(this)
         history.value = sessionRepository.loadSessions()
 
         tiltSensor.angle.onEach { angle ->
-            updateAngle(angle)
+            if (isRunning.value) {
+                updateAngle(angle)
+            }
+        }.launchIn(lifecycleScope)
+
+        tiltSensor.isRunning.onEach { running ->
+            isRunning.value = running
         }.launchIn(lifecycleScope)
 
         setContent {
@@ -54,6 +66,8 @@ class MainActivity : ComponentActivity() {
                 val state = TiltState(
                     angle = currentAngle.value,
                     isTared = isTared.value,
+                    isRunning = isRunning.value,
+                    selectedAxis = selectedAxis.value,
                     sessionMaxAngle = sessionMaxAngle.value,
                     currentWheelieMaxAngle = currentWheelieMaxAngle.value,
                     wheelieCount = wheelieCount.value,
@@ -66,7 +80,10 @@ class MainActivity : ComponentActivity() {
 
                 TiltScreen(
                     state = state,
+                    onStartStop = { handleStartStop() },
                     onTare = { handleTare() },
+                    onResetTare = { handleResetTare() },
+                    onAxisChange = { axis -> handleAxisChange(axis) },
                     onResetSession = { handleResetSession() },
                     onToggleHistory = { showHistory.value = !showHistory.value },
                     onClearHistory = { handleClearHistory() }
@@ -75,21 +92,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        tiltSensor.start()
-        lastUpdateTime = System.currentTimeMillis()
-    }
-
     override fun onPause() {
         super.onPause()
-        tiltSensor.stop()
 
-        if (isInWheelie.value) {
-            endWheelie()
+        if (isRunning.value) {
+            if (isInWheelie.value) {
+                endWheelie()
+            }
+            // Don't stop the sensor, just save current session
+            saveCurrentSession()
         }
+    }
 
-        saveCurrentSession()
+    override fun onDestroy() {
+        super.onDestroy()
+        tiltSensor.stop()
+    }
+
+    private fun handleStartStop() {
+        if (isRunning.value) {
+            // Stopping
+            if (isInWheelie.value) {
+                endWheelie()
+            }
+            tiltSensor.stop()
+            currentAngle.value = 0f
+        } else {
+            // Starting
+            lastUpdateTime = System.currentTimeMillis()
+            tiltSensor.start()
+        }
     }
 
     private fun updateAngle(angle: Float) {
@@ -127,16 +159,26 @@ class MainActivity : ComponentActivity() {
     private fun endWheelie() {
         isInWheelie.value = false
         wheelieCount.value++
+        // Reset current wheelie stats but keep session stats
+        currentWheelieMaxAngle.value = 0f
+        currentWheelieDurationMs.value = 0
     }
 
     private fun handleTare() {
-        if (isTared.value) {
-            tiltSensor.resetTare()
-            isTared.value = false
-        } else {
-            tiltSensor.tare()
-            isTared.value = true
-        }
+        tiltSensor.tare()
+        isTared.value = true
+    }
+
+    private fun handleResetTare() {
+        tiltSensor.resetTare()
+        isTared.value = false
+    }
+
+    private fun handleAxisChange(axis: MeasurementAxis) {
+        selectedAxis.value = axis
+        tiltSensor.axis = axis
+        // Reset tare when axis changes
+        handleResetTare()
     }
 
     private fun handleResetSession() {
@@ -148,6 +190,7 @@ class MainActivity : ComponentActivity() {
         currentWheelieMaxAngle.value = 0f
         currentWheelieDurationMs.value = 0
         isInWheelie.value = false
+        // Don't reset tare - keep it
     }
 
     private fun handleClearHistory() {

@@ -1,7 +1,6 @@
 package com.tiltsensor.ui
 
 import android.content.res.Configuration
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,11 +9,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tiltsensor.MeasurementAxis
 import com.tiltsensor.data.WheelieSession
 import com.tiltsensor.ui.theme.*
 import kotlin.math.abs
@@ -22,6 +23,8 @@ import kotlin.math.abs
 data class TiltState(
     val angle: Float = 0f,
     val isTared: Boolean = false,
+    val isRunning: Boolean = false,
+    val selectedAxis: MeasurementAxis = MeasurementAxis.PITCH,
     val sessionMaxAngle: Float = 0f,
     val currentWheelieMaxAngle: Float = 0f,
     val wheelieCount: Int = 0,
@@ -35,7 +38,10 @@ data class TiltState(
 @Composable
 fun TiltScreen(
     state: TiltState,
+    onStartStop: () -> Unit,
     onTare: () -> Unit,
+    onResetTare: () -> Unit,
+    onAxisChange: (MeasurementAxis) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit,
     onClearHistory: () -> Unit
@@ -55,9 +61,9 @@ fun TiltScreen(
             )
         } else {
             if (isLandscape) {
-                LandscapeLayout(state, onTare, onResetSession, onToggleHistory)
+                LandscapeLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onResetSession, onToggleHistory)
             } else {
-                PortraitLayout(state, onTare, onResetSession, onToggleHistory)
+                PortraitLayout(state, onStartStop, onTare, onResetTare, onAxisChange, onResetSession, onToggleHistory)
             }
         }
     }
@@ -66,7 +72,10 @@ fun TiltScreen(
 @Composable
 private fun PortraitLayout(
     state: TiltState,
+    onStartStop: () -> Unit,
     onTare: () -> Unit,
+    onResetTare: () -> Unit,
+    onAxisChange: (MeasurementAxis) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit
 ) {
@@ -76,24 +85,39 @@ private fun PortraitLayout(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.weight(0.1f))
+        // Axis selector at top
+        AxisSelector(
+            selectedAxis = state.selectedAxis,
+            onAxisChange = onAxisChange,
+            enabled = !state.isRunning
+        )
+
+        Spacer(modifier = Modifier.weight(0.05f))
 
         AngleDisplay(
             angle = state.angle,
-            modifier = Modifier.weight(0.4f)
+            isRunning = state.isRunning,
+            modifier = Modifier.weight(0.35f)
         )
 
-        StatsPanel(
-            state = state,
-            modifier = Modifier.weight(0.3f)
-        )
+        if (state.isRunning) {
+            StatsPanel(
+                state = state,
+                modifier = Modifier.weight(0.25f)
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(0.25f))
+        }
 
         ButtonPanel(
+            isRunning = state.isRunning,
             isTared = state.isTared,
+            onStartStop = onStartStop,
             onTare = onTare,
+            onResetTare = onResetTare,
             onResetSession = onResetSession,
             onToggleHistory = onToggleHistory,
-            modifier = Modifier.weight(0.2f)
+            modifier = Modifier.weight(0.35f)
         )
     }
 }
@@ -101,7 +125,10 @@ private fun PortraitLayout(
 @Composable
 private fun LandscapeLayout(
     state: TiltState,
+    onStartStop: () -> Unit,
     onTare: () -> Unit,
+    onResetTare: () -> Unit,
+    onAxisChange: (MeasurementAxis) -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit
 ) {
@@ -111,12 +138,25 @@ private fun LandscapeLayout(
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AngleDisplay(
-            angle = state.angle,
+        Column(
             modifier = Modifier
                 .weight(0.5f)
-                .fillMaxHeight()
-        )
+                .fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            AxisSelector(
+                selectedAxis = state.selectedAxis,
+                onAxisChange = onAxisChange,
+                enabled = !state.isRunning
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            AngleDisplay(
+                angle = state.angle,
+                isRunning = state.isRunning,
+                modifier = Modifier.weight(1f)
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -126,28 +166,69 @@ private fun LandscapeLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatsPanel(
-                state = state,
-                modifier = Modifier.weight(0.6f)
-            )
+            if (state.isRunning) {
+                StatsPanel(
+                    state = state,
+                    modifier = Modifier.weight(0.5f)
+                )
+            }
 
             ButtonPanel(
+                isRunning = state.isRunning,
                 isTared = state.isTared,
+                onStartStop = onStartStop,
                 onTare = onTare,
+                onResetTare = onResetTare,
                 onResetSession = onResetSession,
                 onToggleHistory = onToggleHistory,
-                modifier = Modifier.weight(0.4f)
+                modifier = Modifier.weight(0.5f)
             )
         }
     }
 }
 
 @Composable
+private fun AxisSelector(
+    selectedAxis: MeasurementAxis,
+    onAxisChange: (MeasurementAxis) -> Unit,
+    enabled: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Axis: ",
+            color = TextSecondary,
+            fontSize = 14.sp
+        )
+
+        FilterChip(
+            selected = selectedAxis == MeasurementAxis.PITCH,
+            onClick = { if (enabled) onAxisChange(MeasurementAxis.PITCH) },
+            label = { Text("Pitch (wheelie)") },
+            enabled = enabled,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+
+        FilterChip(
+            selected = selectedAxis == MeasurementAxis.ROLL,
+            onClick = { if (enabled) onAxisChange(MeasurementAxis.ROLL) },
+            label = { Text("Roll (lean)") },
+            enabled = enabled,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+}
+
+@Composable
 private fun AngleDisplay(
     angle: Float,
+    isRunning: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val color = getAngleColor(angle)
+    val color = if (isRunning) getAngleColor(angle) else TextSecondary
 
     Box(
         modifier = modifier,
@@ -157,18 +238,20 @@ private fun AngleDisplay(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "${abs(angle).toInt()}",
+                text = if (isRunning) "${abs(angle).toInt()}°" else "--",
                 fontSize = 140.sp,
                 fontWeight = FontWeight.Bold,
                 color = color,
                 textAlign = TextAlign.Center
             )
-            Text(
-                text = "degrees",
-                fontSize = 24.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
+            if (!isRunning) {
+                Text(
+                    text = "Press START to begin",
+                    fontSize = 18.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
@@ -294,8 +377,11 @@ private fun StatItem(
 
 @Composable
 private fun ButtonPanel(
+    isRunning: Boolean,
     isTared: Boolean,
+    onStartStop: () -> Unit,
     onTare: () -> Unit,
+    onResetTare: () -> Unit,
     onResetSession: () -> Unit,
     onToggleHistory: () -> Unit,
     modifier: Modifier = Modifier
@@ -305,25 +391,76 @@ private fun ButtonPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // Big Start/Stop button
         Button(
-            onClick = onTare,
+            onClick = onStartStop,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(64.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isTared) DarkSurfaceVariant else GreenAngle
+                containerColor = if (isRunning) RedAngle else GreenAngle
             ),
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = if (isTared) "RESET TARE" else "TARE (SET LEVEL)",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                text = if (isRunning) "STOP" else "START",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // Tare buttons - only show when running
+        if (isRunning) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onTare,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isTared) DarkSurface else GreenAngle
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "TARE",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isTared) TextSecondary else Color.White
+                    )
+                }
+
+                Button(
+                    onClick = onResetTare,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    enabled = isTared,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = YellowAngle,
+                        disabledContainerColor = DarkSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "RESET TARE",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isTared) DarkBackground else TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Session controls
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
