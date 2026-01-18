@@ -8,11 +8,12 @@ import android.hardware.SensorManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.math.atan2
+import kotlin.math.asin
+import kotlin.math.sqrt
 
 enum class MeasurementAxis {
-    PITCH,  // Forward/back tilt (Y/Z) - for wheelies with phone portrait
-    ROLL    // Left/right tilt (X/Z) - for lean angle
+    PITCH,  // Forward/back tilt - for wheelies
+    ROLL    // Left/right tilt - for lean angle
 }
 
 class TiltSensor(context: Context) : SensorEventListener {
@@ -37,8 +38,7 @@ class TiltSensor(context: Context) : SensorEventListener {
     var axis: MeasurementAxis = MeasurementAxis.PITCH
 
     companion object {
-        // Lower alpha = more smoothing, less responsive
-        private const val LOW_PASS_ALPHA = 0.05f
+        private const val LOW_PASS_ALPHA = 0.08f
     }
 
     fun start() {
@@ -74,18 +74,19 @@ class TiltSensor(context: Context) : SensorEventListener {
     fun isTared(): Boolean = isTared
 
     private fun calculateRawAngle(): Float {
-        val radians = when (axis) {
-            MeasurementAxis.PITCH -> atan2(filteredY, filteredZ)
-            MeasurementAxis.ROLL -> atan2(filteredX, filteredZ)
-        }
-        return Math.toDegrees(radians.toDouble()).toFloat()
-    }
+        val magnitude = sqrt(filteredX * filteredX + filteredY * filteredY + filteredZ * filteredZ)
+        if (magnitude < 0.1f) return 0f
 
-    private fun normalizeAngle(angle: Float): Float {
-        var normalized = angle
-        while (normalized > 180f) normalized -= 360f
-        while (normalized < -180f) normalized += 360f
-        return normalized
+        // Use asin for stable angle calculation at any orientation
+        // This gives angle from horizontal plane (-90 to +90 degrees)
+        val ratio = when (axis) {
+            MeasurementAxis.PITCH -> filteredY / magnitude  // Y component for forward/back
+            MeasurementAxis.ROLL -> filteredX / magnitude   // X component for left/right
+        }
+
+        // Clamp to valid asin range to avoid NaN
+        val clampedRatio = ratio.coerceIn(-1f, 1f)
+        return Math.toDegrees(asin(clampedRatio).toDouble()).toFloat()
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -106,13 +107,12 @@ class TiltSensor(context: Context) : SensorEventListener {
             }
 
             val rawAngle = calculateRawAngle()
-            val adjustedAngle = normalizeAngle(rawAngle - tareOffset)
-            _angle.value = adjustedAngle
+            _angle.value = rawAngle - tareOffset
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Not needed for this implementation
+        // Not needed
     }
 
     private fun lowPassFilter(input: Float, previous: Float): Float {
