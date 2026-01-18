@@ -8,7 +8,7 @@ import android.hardware.SensorManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 enum class MeasurementAxis {
@@ -39,7 +39,8 @@ class TiltSensor(context: Context) : SensorEventListener {
     var isLandscape: Boolean = false
 
     companion object {
-        private const val LOW_PASS_ALPHA = 0.08f
+        // Heavier smoothing to reduce jitter near vertical
+        private const val LOW_PASS_ALPHA = 0.06f
     }
 
     fun start() {
@@ -75,23 +76,39 @@ class TiltSensor(context: Context) : SensorEventListener {
     fun isTared(): Boolean = isTared
 
     private fun calculateRawAngle(): Float {
-        val magnitude = sqrt(filteredX * filteredX + filteredY * filteredY + filteredZ * filteredZ)
-        if (magnitude < 0.1f) return 0f
-
-        // In landscape mode, X and Y axes are swapped from the user's perspective
+        // Use atan2 for full -180° to +180° range (can measure past vertical)
         // Portrait: Y is forward/back (pitch), X is left/right (roll)
         // Landscape: X is forward/back (pitch), Y is left/right (roll)
-        val ratio = when (axis) {
+
+        val radians = when (axis) {
             MeasurementAxis.PITCH -> {
-                if (isLandscape) filteredX / magnitude else filteredY / magnitude
+                if (isLandscape) {
+                    // Landscape pitch: rotation around Y axis, measure X vs Z
+                    atan2(filteredX, -filteredZ)
+                } else {
+                    // Portrait pitch: rotation around X axis, measure Y vs Z
+                    atan2(filteredY, -filteredZ)
+                }
             }
             MeasurementAxis.ROLL -> {
-                if (isLandscape) filteredY / magnitude else filteredX / magnitude
+                if (isLandscape) {
+                    // Landscape roll: measure Y vs Z
+                    atan2(filteredY, -filteredZ)
+                } else {
+                    // Portrait roll: measure X vs Z
+                    atan2(filteredX, -filteredZ)
+                }
             }
         }
 
-        val clampedRatio = ratio.coerceIn(-1f, 1f)
-        return Math.toDegrees(asin(clampedRatio).toDouble()).toFloat()
+        return Math.toDegrees(radians.toDouble()).toFloat()
+    }
+
+    private fun normalizeAngle(angle: Float): Float {
+        var normalized = angle
+        while (normalized > 180f) normalized -= 360f
+        while (normalized < -180f) normalized += 360f
+        return normalized
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -112,7 +129,8 @@ class TiltSensor(context: Context) : SensorEventListener {
             }
 
             val rawAngle = calculateRawAngle()
-            _angle.value = rawAngle - tareOffset
+            val adjusted = normalizeAngle(rawAngle - tareOffset)
+            _angle.value = adjusted
         }
     }
 
