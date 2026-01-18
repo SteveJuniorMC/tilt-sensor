@@ -2,6 +2,8 @@ package com.tiltsensor
 
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,9 +24,11 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var tiltSensor: TiltSensor
     private lateinit var sessionRepository: SessionRepository
+    private val handler = Handler(Looper.getMainLooper())
 
     companion object {
         private const val WHEELIE_THRESHOLD = 15f
+        private const val TARE_DELAY_MS = 300L
     }
 
     private var isRunning = mutableStateOf(false)
@@ -113,6 +117,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacksAndMessages(null)
         tiltSensor.stop()
     }
 
@@ -125,14 +130,22 @@ class MainActivity : ComponentActivity() {
             tiltSensor.stop()
             currentAngle.value = 0f
         } else {
-            // Starting
+            // Starting - start sensor then auto-tare after short delay
             lastUpdateTime = System.currentTimeMillis()
             tiltSensor.start()
+
+            // Auto-tare after a short delay to let sensor stabilize
+            handler.postDelayed({
+                if (isRunning.value) {
+                    handleTare()
+                }
+            }, TARE_DELAY_MS)
         }
     }
 
     private fun handleOrientationChange(orientation: ScreenOrientation) {
         selectedOrientation.value = orientation
+        tiltSensor.isLandscape = (orientation == ScreenOrientation.LANDSCAPE)
         requestedOrientation = when (orientation) {
             ScreenOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             ScreenOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE

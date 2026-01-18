@@ -36,6 +36,7 @@ class TiltSensor(context: Context) : SensorEventListener {
     private var initialized = false
 
     var axis: MeasurementAxis = MeasurementAxis.PITCH
+    var isLandscape: Boolean = false
 
     companion object {
         private const val LOW_PASS_ALPHA = 0.08f
@@ -77,14 +78,18 @@ class TiltSensor(context: Context) : SensorEventListener {
         val magnitude = sqrt(filteredX * filteredX + filteredY * filteredY + filteredZ * filteredZ)
         if (magnitude < 0.1f) return 0f
 
-        // Use asin for stable angle calculation at any orientation
-        // This gives angle from horizontal plane (-90 to +90 degrees)
+        // In landscape mode, X and Y axes are swapped from the user's perspective
+        // Portrait: Y is forward/back (pitch), X is left/right (roll)
+        // Landscape: X is forward/back (pitch), Y is left/right (roll)
         val ratio = when (axis) {
-            MeasurementAxis.PITCH -> filteredY / magnitude  // Y component for forward/back
-            MeasurementAxis.ROLL -> filteredX / magnitude   // X component for left/right
+            MeasurementAxis.PITCH -> {
+                if (isLandscape) filteredX / magnitude else filteredY / magnitude
+            }
+            MeasurementAxis.ROLL -> {
+                if (isLandscape) filteredY / magnitude else filteredX / magnitude
+            }
         }
 
-        // Clamp to valid asin range to avoid NaN
         val clampedRatio = ratio.coerceIn(-1f, 1f)
         return Math.toDegrees(asin(clampedRatio).toDouble()).toFloat()
     }
