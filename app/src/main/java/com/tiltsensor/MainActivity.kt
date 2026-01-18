@@ -128,7 +128,15 @@ class MainActivity : ComponentActivity() {
                 endWheelie()
             }
             tiltSensor.stop()
+            saveCurrentSession()
             currentAngle.value = 0f
+            // Reset session stats for next run
+            sessionMaxAngle.value = 0f
+            wheelieCount.value = 0
+            sessionTotalDurationMs.value = 0
+            currentWheelieMaxAngle.value = 0f
+            currentWheelieDurationMs.value = 0
+            isTared.value = false
         } else {
             // Starting - start sensor then auto-tare after short delay
             lastUpdateTime = System.currentTimeMillis()
